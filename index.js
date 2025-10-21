@@ -42,7 +42,7 @@ client.on(Events.InteractionCreate, async interaction => {
     // --- LÓGICA PARA O COMANDO /criar_acao ---
     if (interaction.isChatInputCommand() && interaction.commandName === 'criar_acao') {
         // --- VERIFICAÇÃO DE CARGO ---
-        const requiredRoleName = "Admin"; // <<-- MUDE AQUI PARA O NOME DO CARGO
+        const requiredRoleName = "Resp Ações"; // <<-- CARGO ATUALIZADO
         
         if (!interaction.member.roles.cache.some(role => role.name === requiredRoleName)) {
             return interaction.reply({

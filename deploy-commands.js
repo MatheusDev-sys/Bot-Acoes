@@ -1,45 +1,37 @@
-// Este arquivo serve para registrar os "Slash Commands" (comandos com /)
-// Você só precisa rodar este arquivo UMA VEZ, ou quando alterar um comando.
-// Comando para rodar: node deploy-commands.js
+// Este script registra os slash commands globalmente.
+// Rode apenas uma vez quando criar ou alterar um comando: node deploy-commands.js
 
 require('dotenv').config();
 const { REST, Routes, SlashCommandBuilder } = require('discord.js');
 
-// Pega as credenciais dos arquivos de configuração
-const token = process.env.DISCORD_TOKEN;
 const clientId = process.env.CLIENT_ID;
-const guildId = process.env.GUILD_ID; // ID do seu servidor (guilda)
+const token = process.env.DISCORD_TOKEN;
 
-// Verifica se todas as variáveis necessárias estão presentes
-if (!token || !clientId || !guildId) {
-    console.error('Por favor, defina DISCORD_TOKEN, CLIENT_ID, e GUILD_ID no seu arquivo .env');
-    process.exit(1); // Encerra o script se algo estiver faltando
-}
-
-// Cria a definição do comando /criar_acao
+// Definição do comando /criar_acao
 const commands = [
     new SlashCommandBuilder()
         .setName('criar_acao')
-        .setDescription('Cria um novo agendamento de ação com lista de presença.'),
-]
-    .map(command => command.toJSON());
+        .setDescription('Cria uma nova ação com lista de presença.')
+].map(command => command.toJSON());
 
-// Cria uma instância do REST para se comunicar com a API do Discord
+// Instância do REST para se comunicar com a API do Discord
 const rest = new REST({ version: '10' }).setToken(token);
 
-// Função assíncrona para registrar os comandos
+// Função para registrar os comandos
 (async () => {
     try {
-        console.log('Iniciando o registro de (/) comandos...');
+        console.log('Iniciando o registro de (/) comandos globais...');
 
-        // O método 'put' registra ou atualiza todos os comandos no servidor especificado
+        // O método 'put' sincroniza os comandos com a API.
+        // Usamos Routes.applicationCommands para registro global.
         await rest.put(
-            Routes.applicationGuildCommands(clientId, guildId),
+            Routes.applicationCommands(clientId),
             { body: commands },
         );
 
-        console.log('(/) comandos registrados com sucesso!');
+        console.log('✅ Comandos globais (/) registrados com sucesso!');
     } catch (error) {
         console.error('Ocorreu um erro ao registrar os comandos:', error);
     }
 })();
+

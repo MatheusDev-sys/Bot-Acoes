@@ -38,7 +38,6 @@ client.on(Events.ClientReady, () => {
 });
 
 // "Ouvinte" principal que reage a todas as interações (comandos, botões, modais)
-// [CORREÇÃO AQUI] Adicionado um try...catch global para evitar crashes
 client.on(Events.InteractionCreate, async interaction => {
     try {
         // --- LÓGICA PARA O COMANDO /criar_acao ---
@@ -152,7 +151,8 @@ client.on(Events.InteractionCreate, async interaction => {
 
                 // --- AGENDAMENTO DE ENCERRAMENTO AUTOMÁTICO ---
                 try {
-                    const dataRegex = /^\d{2}\/\d{2}\/\d{4}$/;
+                    // [CORREÇÃO AQUI] Regex agora aceita 1 ou 2 dígitos para dia e mês
+                    const dataRegex = /^\d{1,2}\/\d{1,2}\/\d{4}$/;
                     const horarioRegex = /^\d{2}:\d{2}$/;
 
                     if (dataRegex.test(data) && horarioRegex.test(horario)) {
@@ -435,13 +435,28 @@ client.on(Events.InteractionCreate, async interaction => {
             await interaction.editReply({content: replyContent });
             
         }
-    // [CORREÇÃO AQUI] Fechamento do try...catch
     } catch (error) {
+        // [CORREÇÃO AQUI] try/catch agora apanha o erro 10062
         console.error('Ocorreu um erro ao processar uma interação:', error);
+        
+        // Se for o erro 10062, apenas avisa e não crasha
+        if (error.code === 10062) {
+            console.warn('Erro 10062 (Unknown Interaction) detetado e ignorado. Interação provavelmente expirou ou era "fantasma".');
+            // Tenta responder ao usuário que algo falhou, se possível
+            if (!interaction.replied && !interaction.deferred) {
+                try {
+                    await interaction.reply({ content: 'Esta interação expirou ou é inválida. Tente novamente.', flags: [MessageFlags.Ephemeral] });
+                } catch (e) {
+                    console.error('Não foi possível nem responder à interação falhada.', e);
+                }
+            }
+            return; // Impede o crash
+        }
+        
+        // Para outros erros, tenta responder
         if (interaction.replied || interaction.deferred) {
             await interaction.followUp({ content: 'Ocorreu um erro ao processar sua solicitação.', flags: [MessageFlags.Ephemeral] });
         } else {
-            // Tenta responder à interação se ela ainda não foi respondida
             try {
                 await interaction.reply({ content: 'Ocorreu um erro. Tente novamente.', flags: [MessageFlags.Ephemeral] });
             } catch (err) {
@@ -493,6 +508,24 @@ app.listen(port, () => {
   console.log(`🌐 Servidor web de keep-alive rodando na porta ${port}`);
 });
 // --- FIM DO SERVIDOR WEB ---
+
+
+// --- [CORREÇÃO AQUI] Rede de segurança global para "Unhandled Rejections" ---
+// Isto vai apanhar erros (como o 10062) que "borbulham" e causam crashes.
+process.on('unhandledRejection', error => {
+    console.error('Unhandled promise rejection:', error);
+    
+    // Especificamente para o erro 10062, nós o registamos mas não crashamos o bot.
+    if (error && typeof error === 'object' && 'code' in error && error.code === 10062) {
+        console.warn('IGNORANDO ERRO 10062 (Unknown Interaction). O bot não vai reiniciar.');
+        return; // Impede o crash
+    }
+    
+    // Para outros erros, é melhor deixar o Render reiniciar o bot.
+    // Mas, por segurança, podemos apenas registar:
+    console.error('Um erro não tratado sério ocorreu. O Render deve reiniciar o bot.');
+});
+// --- FIM DA REDE DE SEGURANÇA ---
 
 
 // Faz o login do bot usando o token

@@ -305,6 +305,68 @@ client.on(Events.InteractionCreate, async interaction => {
         if (originalEmbed.title.includes('[ENCERRADA]')) {
              return interaction.reply({ content: 'Esta ação já foi encerrada.', flags: [MessageFlags.Ephemeral] });
         }
+
+        // --- Lógica de Edição e Encerramento (Permissão Necessária) ---
+        // [CORREÇÃO] Movido para cima. Botões de admin têm fluxo diferente.
+        
+        // Função para checar a permissão (Admin OU o cargo específico)
+        const hasPermission = () => {
+             if (interaction.member.permissions.has(PermissionFlagsBits.Administrator)) return true;
+             if (interaction.member.roles.cache.some(role => role.name === requiredRoleName)) return true;
+             return false;
+        };
+        
+        if (customId === 'editar_acao') {
+            if (!hasPermission()) {
+                return interaction.reply({ content: `Você não tem permissão para editar. Apenas Administradores ou cargos "${requiredRoleName}".`, flags: [MessageFlags.Ephemeral] });
+            }
+            
+            // [CORREÇÃO AQUI] Regex mais seguro
+            const titleMatch = originalEmbed.title.match(/Ação: (.*) - (.*)/);
+            if (!titleMatch) {
+                 console.error("Regex do título falhou ao editar:", originalEmbed.title);
+                 return interaction.reply({ content: 'Erro ao ler o título da ação para edição.', flags: [MessageFlags.Ephemeral] });
+            }
+            const nomeAcao = titleMatch[1];
+            const faccao = titleMatch[2];
+            
+            const fields = originalEmbed.fields;
+            const dataValue = fields.find(f => f.name === ':date: Data').value;
+            const horarioValue = fields.find(f => f.name === ':alarm_clock: Horário').value;
+            const confirmadosField = fields.find(f => f.name.startsWith(':white_check_mark:'));
+            const [current, max] = confirmadosField.name.match(/(\d+)/g).map(Number);
+            const vagasValue = max.toString();
+
+            const modal = new ModalBuilder()
+                .setCustomId(`modal_editar_acao_${message.id}`)
+                .setTitle('Editar Ação Existente');
+
+            modal.addComponents(
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('nomeAcaoInput').setLabel("Local/Nome da Ação").setStyle(TextInputStyle.Short).setValue(nomeAcao)),
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('faccaoInput').setLabel("Facção/Organização").setStyle(TextInputStyle.Short).setValue(faccao)),
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('dataInput').setLabel("Data da Ação").setPlaceholder('Ex: 25/12/2025').setStyle(TextInputStyle.Short).setValue(dataValue)),
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('horarioInput').setLabel("Horário da Ação").setPlaceholder('Ex: 21:00').setStyle(TextInputStyle.Short).setValue(horarioValue)),
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('vagasInput').setLabel("Quantidade de vagas").setStyle(TextInputStyle.Short).setValue(vagasValue))
+                // [CORREÇÃO AQUI] 6º campo removido para evitar crash
+                // new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('removerUsuarioInput').setLabel("Remover Usuário (Opcional)").setPlaceholder("Digite o Nome#Tag do usuário").setStyle(TextInputStyle.Short).setRequired(false))
+            );
+            
+            await interaction.showModal(modal);
+            return; // Sai da função, pois abriu um modal
+        }
+
+        if (customId === 'encerrar_acao') {
+             if (!hasPermission()) {
+                return interaction.reply({ content: `Você não tem permissão para encerrar. Apenas Administradores ou cargos "${requiredRoleName}".`, flags: [MessageFlags.Ephemeral] });
+            }
+            await encerrarAcao(message);
+            await interaction.reply({ content: 'Ação encerrada com sucesso!', flags: [MessageFlags.Ephemeral] });
+            return; // Sai da função, pois a interação foi respondida
+        }
+
+        // --- LÓGICA DOS BOTÕES DE LISTA (Confirmar, Cancelar, Reserva) ---
+        // [CORREÇÃO] Deferir a resposta para garantir a edição do embed
+        await interaction.deferReply({ flags: [MessageFlags.Ephemeral] });
         
         const userTag = interaction.user.tag; // Ex: "fulano#1234"
         const userMention = interaction.user.toString(); // Ex: "<@123456789>"
@@ -346,11 +408,13 @@ client.on(Events.InteractionCreate, async interaction => {
         };
 
         const userEntry = `${userMention} (${userTag})`; // Salva o @nome e a tag
+        let replyContent = ''; // [CORREÇÃO] Variável para o feedback
 
         if (customId === 'confirmar_presenca') {
             if (isUserInAnyList(userTag)) {
                  if(confirmadosList.includes(userTag)) {
-                    return interaction.reply({ content: 'Você já está na lista de confirmados!', flags: [MessageFlags.Ephemeral] });
+                    // [CORREÇÃO] Mudar de reply para editReply
+                    return interaction.editReply({ content: 'Você já está na lista de confirmados!' });
                  }
                  // Se estava na reserva, remove da reserva
                  removeUserFromLists(userTag);
@@ -359,17 +423,20 @@ client.on(Events.InteractionCreate, async interaction => {
             if (current >= max) {
                 // Vagas cheias, tenta adicionar na reserva
                 reservasList = reservasList === '*Ninguém na reserva.*' ? `- ${userEntry}` : `${reservasList}\n- ${userEntry}`;
-                interaction.reply({ content: 'As vagas estão esgotadas! Você foi adicionado à lista de reserva.', flags: [MessageFlags.Ephemeral] });
+                // [CORREÇÃO] Mudar de reply para variável
+                replyContent = 'As vagas estão esgotadas! Você foi adicionado à lista de reserva.';
             } else {
                 // Adiciona em confirmados
                 confirmadosList = confirmadosList === '*Ninguém confirmado ainda.*' ? `- ${userEntry}` : `${confirmadosList}\n- ${userEntry}`;
-                interaction.reply({ content: 'Presença confirmada!', flags: [MessageFlags.Ephemeral] });
+                // [CORREÇÃO] Mudar de reply para variável
+                replyContent = 'Presença confirmada!';
             }
         }
 
         if (customId === 'cancelar_presenca') {
             if (!isUserInAnyList(userTag)) {
-                return interaction.reply({ content: 'Você não estava em nenhuma lista para cancelar.', flags: [MessageFlags.Ephemeral] });
+                // [CORREÇÃO] Mudar de reply para editReply
+                return interaction.editReply({ content: 'Você não estava em nenhuma lista para cancelar.' });
             }
             
             const estavaConfirmado = confirmadosList.includes(userTag);
@@ -401,13 +468,15 @@ client.on(Events.InteractionCreate, async interaction => {
                 }
             }
             
-            await interaction.reply({ content: 'Presença cancelada.', flags: [MessageFlags.Ephemeral] });
+            // [CORREÇÃO] Mudar de reply para variável
+            replyContent = 'Presença cancelada.';
         }
         
         if (customId === 'reserva_presenca') {
              if (isUserInAnyList(userTag)) {
                  if (reservasList.includes(userTag)) {
-                    return interaction.reply({ content: 'Você já está na lista de reserva!', flags: [MessageFlags.Ephemeral] });
+                    // [CORREÇÃO] Mudar de reply para editReply
+                    return interaction.editReply({ content: 'Você já está na lista de reserva!' });
                  }
                  // Se estava confirmado, remove de confirmado
                  removeUserFromLists(userTag);
@@ -415,91 +484,40 @@ client.on(Events.InteractionCreate, async interaction => {
             
             // Adiciona na reserva
             reservasList = reservasList === '*Ninguém na reserva.*' ? `- ${userEntry}` : `${reservasList}\n- ${userEntry}`;
-            await interaction.reply({ content: 'Você foi adicionado à lista de reserva.', flags: [MessageFlags.Ephemeral] });
+            // [CORREÇÃO] Mudar de reply para variável
+            replyContent = 'Você foi adicionado à lista de reserva.';
         }
         
-        // --- Lógica de Edição e Encerramento (Permissão Necessária) ---
-        
-        // Função para checar a permissão (Admin OU o cargo específico)
-        const hasPermission = () => {
-             if (interaction.member.permissions.has(PermissionFlagsBits.Administrator)) return true;
-             if (interaction.member.roles.cache.some(role => role.name === requiredRoleName)) return true;
-             return false;
-        };
-        
-        if (customId === 'editar_acao') {
-            if (!hasPermission()) {
-                return interaction.reply({ content: `Você não tem permissão para editar. Apenas Administradores ou cargos "${requiredRoleName}".`, flags: [MessageFlags.Ephemeral] });
-            }
-            
-            // [CORREÇÃO AQUI] Regex mais seguro
-            const titleMatch = originalEmbed.title.match(/Ação: (.*) - (.*)/);
-            if (!titleMatch) {
-                 console.error("Regex do título falhou ao editar:", originalEmbed.title);
-                 return interaction.reply({ content: 'Erro ao ler o título da ação para edição.', flags: [MessageFlags.Ephemeral] });
-            }
-            const nomeAcao = titleMatch[1];
-            const faccao = titleMatch[2];
-            
-            const dataValue = fields.find(f => f.name === ':date: Data').value;
-            const horarioValue = fields.find(f => f.name === ':alarm_clock: Horário').value;
-            const vagasValue = max.toString();
-
-            const modal = new ModalBuilder()
-                .setCustomId(`modal_editar_acao_${message.id}`)
-                .setTitle('Editar Ação Existente');
-
-            modal.addComponents(
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('nomeAcaoInput').setLabel("Local/Nome da Ação").setStyle(TextInputStyle.Short).setValue(nomeAcao)),
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('faccaoInput').setLabel("Facção/Organização").setStyle(TextInputStyle.Short).setValue(faccao)),
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('dataInput').setLabel("Data da Ação").setPlaceholder('Ex: 25/12/2025').setStyle(TextInputStyle.Short).setValue(dataValue)),
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('horarioInput').setLabel("Horário da Ação").setPlaceholder('Ex: 21:00').setStyle(TextInputStyle.Short).setValue(horarioValue)),
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('vagasInput').setLabel("Quantidade de vagas").setStyle(TextInputStyle.Short).setValue(vagasValue))
-                // [CORREÇÃO AQUI] 6º campo removido para evitar crash
-                // new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('removerUsuarioInput').setLabel("Remover Usuário (Opcional)").setPlaceholder("Digite o Nome#Tag do usuário").setStyle(TextInputStyle.Short).setRequired(false))
-            );
-            
-            await interaction.showModal(modal);
-        }
-
-        if (customId === 'encerrar_acao') {
-             if (!hasPermission()) {
-                return interaction.reply({ content: `Você não tem permissão para encerrar. Apenas Administradores ou cargos "${requiredRoleName}".`, flags: [MessageFlags.Ephemeral] });
-            }
-            await encerrarAcao(message);
-            await interaction.reply({ content: 'Ação encerrada com sucesso!', flags: [MessageFlags.Ephemeral] });
-        }
         
         // --- Atualiza o Embed após qualquer clique em botão (exceto modais) ---
-        if (interaction.isButton() && customId !== 'editar_acao') {
-            // Recalcula contagens
-            const confirmadosCount = confirmadosList === '*Ninguém confirmado ainda.*' ? 0 : confirmadosList.split('\n').length;
-            const reservasCount = reservasList === '*Ninguém na reserva.*' ? 0 : reservasList.split('\n').length;
-            
-            // Recria os campos
-            const newConfirmadosField = { name: `:white_check_mark: Confirmados (${confirmadosCount}/${max}):`, value: confirmadosList };
-            const newReservasField = { name: `:pushpin: Reservas (${reservasCount}):`, value: reservasList };
-            let newVagasField = fields.find(f => f.name === ':busts_in_silhouette: Vagas');
-            newVagasField.value = `(${confirmadosCount}/${max})`; // Atualiza o campo de vagas original
-            
-            const updatedEmbed = EmbedBuilder.from(originalEmbed)
-                .setFields(
-                    fields.find(f => f.name === ':date: Data'),
-                    fields.find(f => f.name === ':alarm_clock: Horário'),
-                    newVagasField,
-                    { name: '\u200B', value: '\u200B' },
-                    newConfirmadosField,
-                    newReservasField
-                );
-            
-            // Só edita se a interação não foi respondida ainda (evita crash "interaction has already been replied")
-            if (!interaction.replied && !interaction.deferred) {
-                 await message.edit({ embeds: [updatedEmbed] });
-            } else if (interaction.deferred) {
-                 await interaction.editReply({content: 'Ação processada.', flags: [MessageFlags.Ephemeral]}); // Responde ao defer
-                 await message.edit({ embeds: [updatedEmbed] }); // Edita a mensagem original
-            }
-        }
+        // [CORREÇÃO] Removido o IF desnecessário
+       
+        // Recalcula contagens
+        const confirmadosCount = confirmadosList === '*Ninguém confirmado ainda.*' ? 0 : confirmadosList.split('\n').length;
+        const reservasCount = reservasList === '*Ninguém na reserva.*' ? 0 : reservasList.split('\n').length;
+        
+        // Recria os campos
+        const newConfirmadosField = { name: `:white_check_mark: Confirmados (${confirmadosCount}/${max}):`, value: confirmadosList };
+        const newReservasField = { name: `:pushpin: Reservas (${reservasCount}):`, value: reservasList };
+        let newVagasField = fields.find(f => f.name === ':busts_in_silhouette: Vagas');
+        newVagasField.value = `(${confirmadosCount}/${max})`; // Atualiza o campo de vagas original
+        
+        const updatedEmbed = EmbedBuilder.from(originalEmbed)
+            .setFields(
+                fields.find(f => f.name === ':date: Data'),
+                fields.find(f => f.name === ':alarm_clock: Horário'),
+                newVagasField,
+                { name: '\u200B', value: '\u200B' },
+                newConfirmadosField,
+                newReservasField
+            );
+        
+        // [CORREÇÃO] Lógica de resposta e edição corrigida
+        // 1. Edita a mensagem principal
+        await message.edit({ embeds: [updatedEmbed] });
+        // 2. Responde à interação com o feedback privado
+        await interaction.editReply({content: replyContent });
+        
     }
 });
 

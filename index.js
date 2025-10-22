@@ -134,7 +134,8 @@ client.on(Events.InteractionCreate, async interaction => {
                     { name: `:white_check_mark: Confirmados (0/${vagas}):`, value: '*Ninguém confirmado ainda.*' },
                     { name: `:pushpin: Reservas (0):`, value: '*Ninguém na reserva.*' }
                 )
-                .setFooter({ text: `Ação criada por: ${interaction.user.tag}\n:warning: Oficiais que confirmarem e não comparecerem levarão advertência.` })
+                // [CORREÇÃO AQUI] Emoji ⚠️ usado diretamente
+                .setFooter({ text: `Ação criada por: ${interaction.user.tag}\n⚠️ Oficiais que confirmarem e não comparecerem levarão advertência.` })
                 .setTimestamp();
 
             const botoes = new ActionRowBuilder()
@@ -168,15 +169,45 @@ client.on(Events.InteractionCreate, async interaction => {
                     
                     // Converte a data do evento para o fuso correto (Ex: 21:00 BRT -> UTC)
                     // Esta lógica simples pode não ser perfeita, mas ajuda.
-                    // Uma solução robusta exigiria bibliotecas de fuso horário.
                     // Estamos assumindo que o servidor roda em UTC.
                     
                     const now = new Date();
-                    const delay = eventDate.getTime() - now.getTime() - (fusoHorarioOffsetHoras * 60 * 60 * 1000);
+                    // [CORREÇÃO NA LÓGICA DE FUSO] A lógica de fuso estava invertida.
+                    // Queremos a data do evento em UTC.
+                    // Se o usuário digita 20:00 (BRT, -3), o UTC real é 23:00.
+                    // new Date() no JS cria a data no fuso do servidor.
+                    // Assumindo que o servidor é UTC e o usuário digita em BRT (-3)
+                    // eventDate (20:00 UTC) - now (UTC)
+                    // Precisamos que eventDate seja 23:00 UTC.
+                    
+                    // Solução mais simples: assumir que o usuário digita a hora do servidor (UTC)
+                    // ou que o fuso do servidor do Render está em BRT (o que é improvável).
+                    
+                    // Vamos tentar uma lógica de fuso mais direta:
+                    const eventDateInput = new Date(`${year}-${month}-${day}T${hour}:${minute}:00`);
+                    
+                    // Se o servidor for UTC, eventDateInput será "20:00 UTC".
+                    // Se o usuário quis dizer "20:00 BRT" (UTC-3), o tempo real em UTC é 23:00 UTC.
+                    // A diferença é de -3 horas.
+                    
+                    // Vamos assumir que a hora do servidor Render é UTC.
+                    // E que o usuário digita a hora local (BRT/AMT, etc. - Vamos usar -3)
+                    
+                    // 1. Cria a data como se fosse UTC
+                    const eventDateUTC = Date.UTC(year, month - 1, day, hour, minute);
+                    // 2. Subtrai o fuso horário para "corrigir" para o UTC real
+                    // Ex: Usuário digita 20:00 (BRT, -3).
+                    // eventDateUTC é o timestamp para "20:00 UTC".
+                    // Queremos o timestamp para "23:00 UTC".
+                    // Devemos SUBTRAIR o offset (-3).
+                    const correctEventTimeUTC = eventDateUTC - (fusoHorarioOffsetHoras * 60 * 60 * 1000);
+                    
+                    const delay = correctEventTimeUTC - now.getTime();
                     
                     console.log(`[Agendamento] Ação ID: ${acaoMessage.id}`);
-                    console.log(`[Agendamento] Data/Hora Inserida (Local): ${eventDate.toString()}`);
-                    console.log(`[Agendamento] Agora (Servidor): ${now.toString()}`);
+                    console.log(`[Agendamento] Data/Hora Inserida (Assumindo BRT): ${data} ${horario}`);
+                    console.log(`[Agendamento] Timestamp Evento Corrigido (UTC): ${new Date(correctEventTimeUTC).toISOString()}`);
+                    console.log(`[Agendamento] Agora (Servidor): ${now.toISOString()}`);
                     console.log(`[Agendamento] Delay calculado (ms): ${delay}`);
 
 
@@ -225,7 +256,9 @@ client.on(Events.InteractionCreate, async interaction => {
             const data = interaction.fields.getTextInputValue('dataInput');
             const horario = interaction.fields.getTextInputValue('horarioInput');
             const vagas = parseInt(interaction.fields.getTextInputValue('vagasInput'), 10);
-            const removerUsuarioTag = interaction.fields.getTextInputValue('removerUsuarioInput') || null;
+            
+            // [CORREÇÃO AQUI] Lógica de remoção de usuário removida deste modal
+            // const removerUsuarioTag = interaction.fields.getTextInputValue('removerUsuarioInput') || null;
 
             if (isNaN(vagas) || vagas <= 0) {
                 return interaction.editReply({ content: 'A quantidade de vagas deve ser um número maior que zero.', flags: [MessageFlags.Ephemeral] });
@@ -234,25 +267,8 @@ client.on(Events.InteractionCreate, async interaction => {
             let confirmadosField = oldEmbed.fields.find(f => f.name.startsWith(':white_check_mark:'));
             let reservasField = oldEmbed.fields.find(f => f.name.startsWith(':pushpin:'));
             
-            // Lógica para remover usuário
-            if (removerUsuarioTag) {
-                const lines = confirmadosField.value.split('\n');
-                const newLines = lines.filter(line => !line.includes(removerUsuarioTag));
-                
-                if (newLines.length < lines.length) { // Se alguém foi removido
-                    confirmadosField.value = newLines.length > 0 ? newLines.join('\n') : '*Ninguém confirmado ainda.*';
-                    const confirmadosCount = newLines.length > 0 ? newLines.length : 0;
-                    confirmadosField.name = `:white_check_mark: Confirmados (${confirmadosCount}/${vagas}):`;
-                } else {
-                    // Tenta remover das reservas
-                    const reservaLines = reservasField.value.split('\n');
-                    const newReservaLines = reservaLines.filter(line => !line.includes(removerUsuarioTag));
-                    if (newReservaLines.length < reservaLines.length) {
-                         reservasField.value = newReservaLines.length > 0 ? newReservaLines.join('\n') : '*Ninguém na reserva.*';
-                         reservasField.name = `:pushpin: Reservas (${newReservaLines.length}):`;
-                    }
-                }
-            }
+            // [CORREÇÃO AQUI] Lógica de remoção removida
+            // if (removerUsuarioTag) { ... }
 
             // Atualiza o contador de vagas no campo de confirmados (caso o admin mude o total)
             const confirmadosCount = confirmadosField.value === '*Ninguém confirmado ainda.*' ? 0 : confirmadosField.value.split('\n').length;
@@ -284,6 +300,12 @@ client.on(Events.InteractionCreate, async interaction => {
         const { customId } = interaction;
         const message = interaction.message;
         const originalEmbed = message.embeds[0];
+        
+        // Verifica se a ação já está encerrada
+        if (originalEmbed.title.includes('[ENCERRADA]')) {
+             return interaction.reply({ content: 'Esta ação já foi encerrada.', flags: [MessageFlags.Ephemeral] });
+        }
+        
         const userTag = interaction.user.tag; // Ex: "fulano#1234"
         const userMention = interaction.user.toString(); // Ex: "<@123456789>"
 
@@ -350,11 +372,14 @@ client.on(Events.InteractionCreate, async interaction => {
                 return interaction.reply({ content: 'Você não estava em nenhuma lista para cancelar.', flags: [MessageFlags.Ephemeral] });
             }
             
+            const estavaConfirmado = confirmadosList.includes(userTag);
+            
             // Remove o usuário de qualquer lista em que ele esteja
             removeUserFromLists(userTag);
 
             // Lógica de "puxar" da reserva
-            if (confirmadosList.split('\n').length < max && reservasList !== '*Ninguém na reserva.*') {
+            // Só puxa se quem saiu estava na lista de confirmados
+            if (estavaConfirmado && reservasList !== '*Ninguém na reserva.*') {
                 const reservasArray = reservasList.split('\n');
                 const primeiroDaReserva = reservasArray.shift(); // Pega o primeiro
                 
@@ -407,8 +432,14 @@ client.on(Events.InteractionCreate, async interaction => {
                 return interaction.reply({ content: `Você não tem permissão para editar. Apenas Administradores ou cargos "${requiredRoleName}".`, flags: [MessageFlags.Ephemeral] });
             }
             
-            const faccao = originalEmbed.title.match(/Ação: (.*) - (.*)/)[2];
-            const nomeAcao = originalEmbed.title.match(/Ação: (.*) - (.*)/)[1];
+            // [CORREÇÃO AQUI] Regex mais seguro
+            const titleMatch = originalEmbed.title.match(/Ação: (.*) - (.*)/);
+            if (!titleMatch) {
+                 console.error("Regex do título falhou ao editar:", originalEmbed.title);
+                 return interaction.reply({ content: 'Erro ao ler o título da ação para edição.', flags: [MessageFlags.Ephemeral] });
+            }
+            const nomeAcao = titleMatch[1];
+            const faccao = titleMatch[2];
             
             const dataValue = fields.find(f => f.name === ':date: Data').value;
             const horarioValue = fields.find(f => f.name === ':alarm_clock: Horário').value;
@@ -423,8 +454,9 @@ client.on(Events.InteractionCreate, async interaction => {
                 new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('faccaoInput').setLabel("Facção/Organização").setStyle(TextInputStyle.Short).setValue(faccao)),
                 new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('dataInput').setLabel("Data da Ação").setPlaceholder('Ex: 25/12/2025').setStyle(TextInputStyle.Short).setValue(dataValue)),
                 new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('horarioInput').setLabel("Horário da Ação").setPlaceholder('Ex: 21:00').setStyle(TextInputStyle.Short).setValue(horarioValue)),
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('vagasInput').setLabel("Quantidade de vagas").setStyle(TextInputStyle.Short).setValue(vagasValue)),
-                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('removerUsuarioInput').setLabel("Remover Usuário (Opcional)").setPlaceholder("Digite o Nome#Tag do usuário").setStyle(TextInputStyle.Short).setRequired(false))
+                new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('vagasInput').setLabel("Quantidade de vagas").setStyle(TextInputStyle.Short).setValue(vagasValue))
+                // [CORREÇÃO AQUI] 6º campo removido para evitar crash
+                // new ActionRowBuilder().addComponents(new TextInputBuilder().setCustomId('removerUsuarioInput').setLabel("Remover Usuário (Opcional)").setPlaceholder("Digite o Nome#Tag do usuário").setStyle(TextInputStyle.Short).setRequired(false))
             );
             
             await interaction.showModal(modal);
@@ -460,7 +492,13 @@ client.on(Events.InteractionCreate, async interaction => {
                     newReservasField
                 );
             
-            await message.edit({ embeds: [updatedEmbed] });
+            // Só edita se a interação não foi respondida ainda (evita crash "interaction has already been replied")
+            if (!interaction.replied && !interaction.deferred) {
+                 await message.edit({ embeds: [updatedEmbed] });
+            } else if (interaction.deferred) {
+                 await interaction.editReply({content: 'Ação processada.', flags: [MessageFlags.Ephemeral]}); // Responde ao defer
+                 await message.edit({ embeds: [updatedEmbed] }); // Edita a mensagem original
+            }
         }
     }
 });
